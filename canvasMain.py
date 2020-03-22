@@ -1,26 +1,11 @@
 import time
-
-import canvasapi
+import datetime
 from canvasapi import Canvas
 from canvasapi.requester import Requester
 import json
 import requests
 import asyncio
 
-logging = 0
-
-if logging:
-    import logging
-    import sys
-
-    logger = logging.getLogger("canvasapi")
-    handler = logging.StreamHandler(sys.stdout)
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-
-    handler.setLevel(logging.DEBUG)
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
-    logger.setLevel(logging.DEBUG)
 
 with open("user_creds.json") as u:
     user_credentials = json.load(u)
@@ -42,8 +27,6 @@ with open("webhooks.json") as w:
 canvas_discussions_url = webhooks.get("canvas_discussions_url")
 canvas_news_url = webhooks.get("canvas_news_url")
 
-global_discussions = umtymp_course.get_discussion_topics()
-
 
 def send_news_update(course, loop):
     discussions = course.get_discussion_topics()
@@ -51,36 +34,31 @@ def send_news_update(course, loop):
     contents = []
 
     index = 0
-    for discussion in global_discussions:
+    for discussion in discussions:
         if discussion.pinned:
-            if discussion == discussions[index]:
-                discussions.pop(index)
-            else:
-                print(discussion.author)
+            entry_time = int(discussion.last_reply_at_date.strftime("%Y%m%d%H%M%S"))
+
+            if entry_time >= (int(datetime.date.today().strftime("%Y%m%d%H%M%S")) - 100):
                 discussion_name = '**' + str(discussion.title) + '**' + '\n'
                 author = 'Posted by ' + dict(discussion.author).get("display_name") + '\n'
-
                 entry = 'Update in Discussion \n%s' % discussion.url
 
                 contents.append(str(discussion_name + author + entry))
             index += 1
 
-    print(contents)
-
     for content in contents:
-
         header = {
-            "content": "@everyone\n%s" % content,
+            "content": "@CanvasUpdatePings\n%s" % content,
             "allowed_mentions": {
-                "parse": ["everyone"]
+                "parse": ["roles"]
             }
         }
+        print('Posting %s' % content)
+        requests.post(canvas_news_url, json=header)
 
-        if content != "":
-            requests.post(canvas_news_url, json=header)
-        time.sleep(60)
+    time.sleep(3600)
 
-    loop.call_later(1, course, loop)
+    loop.call_later(1, send_news_update, course, loop)
 
 
 def send_discussion_update(course, loop):
@@ -89,39 +67,37 @@ def send_discussion_update(course, loop):
     contents = []
 
     index = 0
-    for discussion in global_discussions:
-        if discussion == discussions[index]:
-            discussions.pop(index)
-        else:
+    for discussion in discussions:
+        entry_time = int(discussion.last_reply_at_date.strftime("%Y%m%d%H%M%S"))
+        if entry_time >= (int(datetime.date.today().strftime("%Y%m%d%H%M%S")) - 100):
             discussion_name = '**' + str(discussion.title) + '**' + '\n'
             author = 'Posted by ' + dict(discussion.author).get("display_name") + '\n'
             entry = 'Update in Discussion \n%s' % discussion.url
+
             contents.append(str(discussion_name + author + entry))
         index += 1
 
-    print(contents)
-
     for content in contents:
-
         header = {
-            "content": "@here\n%s" % content,
+            "content": "@CanvasUpdatePings\n%s" % content,
             "allowed_mentions": {
-                "parse": ["here"]
+                "parse": ["roles"]
             }
         }
+        print('Posting %s' % content)
+        requests.post(canvas_discussions_url, json=header)
 
-        if input('Send? %s:' % content) != "":
+    time.sleep(3600)
 
-            requests.post(canvas_news_url, json=header)
+    loop.call_later(1, send_discussion_update, course, loop)
 
-        time.sleep(60)
+def start():
+    loop = asyncio.get_event_loop()
 
-    loop.call_later(1, course, loop)
+    loop.call_soon(send_news_update, umtymp_course, loop)
+    loop.call_soon(send_discussion_update, umtymp_course, loop)
 
+    loop.run_forever()
 
-loop = asyncio.get_event_loop()
-
-loop.call_soon(send_news_update, umtymp_course, loop)
-loop.call_soon(send_discussion_update, umtymp_course, loop)
-
-loop.run_forever()
+if __name__ == "__main__":
+    start()
